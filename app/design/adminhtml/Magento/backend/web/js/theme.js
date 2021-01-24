@@ -93,6 +93,7 @@ define('globalNavigationScroll', [
 
         } else { // static menu cases
             checkRemoveClass(menu, fixedClassName);
+            menu.css('top', 'auto');
         }
 
         //  Save previous window scrollTop
@@ -267,17 +268,18 @@ define('globalNavigation', [
             if (subMenu.length) {
                 e.preventDefault();
             }
-
-            menuItem.addClass('_show')
-                .siblings(menuItemSelector)
-                .removeClass('_show');
-
-            subMenu.attr('aria-expanded', 'true');
-
             closeBtn.on('click', close);
 
-            this.overlay.show(0).on('click', close);
-            this.menuLinks.last().off('blur');
+            if ($(menuItem).hasClass('_show')) {
+                closeBtn.trigger('click');
+            } else {
+                menuItem.addClass('_show')
+                    .siblings(menuItemSelector)
+                    .removeClass('_show');
+                subMenu.attr('aria-expanded', 'true');
+                this.overlay.show(0).on('click', close);
+                this.menuLinks.last().off('blur');
+            }
         },
 
         /**
@@ -310,8 +312,9 @@ define('globalNavigation', [
 
 define('globalSearch', [
     'jquery',
-    'jquery/ui'
-], function ($) {
+    'Magento_Ui/js/lib/key-codes',
+    'jquery-ui-modules/widget'
+], function ($, keyCodes) {
     'use strict';
 
     $.widget('mage.globalSearch', {
@@ -342,6 +345,25 @@ define('globalSearch', [
 
             this.input.on('focus.activateGlobalSearchForm', function () {
                 self.field.addClass(self.options.fieldActiveClass);
+            });
+
+            $(document).on('keydown.activateGlobalSearchForm', function (event) {
+                var inputs = [
+                    'input',
+                    'select',
+                    'textarea'
+                ];
+
+                if (keyCodes[event.which] !== 'forwardSlashKey' ||
+                    inputs.indexOf(event.target.tagName.toLowerCase()) !== -1 ||
+                    event.target.isContentEditable
+                ) {
+                    return;
+                }
+
+                event.preventDefault();
+
+                self.input.focus();
             });
         }
     });

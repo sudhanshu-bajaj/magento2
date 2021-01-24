@@ -20,7 +20,6 @@ define([
             template: 'ui/grid/paging/paging',
             totalTmpl: 'ui/grid/paging-total',
             totalRecords: 0,
-            pageSize: 20,
             pages: 1,
             current: 1,
             selectProvider: 'ns = ${ $.ns }, index = ids',
@@ -35,15 +34,20 @@ define([
             },
 
             imports: {
-                pageSize: '${ $.sizesConfig.name }:value',
                 totalSelected: '${ $.selectProvider }:totalSelected',
                 totalRecords: '${ $.provider }:data.totalRecords',
-                filters: '${ $.provider }:params.filters'
+                filters: '${ $.provider }:params.filters',
+                keywordUpdated: '${ $.provider }:params.keywordUpdated'
             },
 
             exports: {
                 pageSize: '${ $.provider }:params.paging.pageSize',
                 current: '${ $.provider }:params.paging.current'
+            },
+
+            links: {
+                options: '${ $.sizesConfig.name }:options',
+                pageSize: '${ $.sizesConfig.name }:value'
             },
 
             statefull: {
@@ -55,7 +59,8 @@ define([
                 'pages': 'onPagesChange',
                 'pageSize': 'onPageSizeChange',
                 'totalRecords': 'updateCounter',
-                '${ $.provider }:params.filters': 'goFirst'
+                '${ $.provider }:params.filters': 'goFirst',
+                '${ $.provider }:params.search': 'onSearchUpdate'
             },
 
             modules: {
@@ -231,10 +236,10 @@ define([
          * previous and current page size values.
          */
         updateCursor: function () {
-            var cursor  = this.current - 1,
-                size    = this.pageSize,
+            var cursor = this.current - 1,
+                size = this.pageSize,
                 oldSize = _.isUndefined(this.previousSize) ? this.pageSize : this.previousSize,
-                delta   = cursor * (oldSize  - size) / size;
+                delta = cursor * (oldSize - size) / size;
 
             delta = size > oldSize ?
                 Math.ceil(delta) :
@@ -279,6 +284,17 @@ define([
          */
         onPagesChange: function () {
             this.updateCursor();
+        },
+
+        /**
+         * Resent the pagination to Page 1 on search keyword update
+         */
+        onSearchUpdate: function () {
+            if (!_.isUndefined(this.keywordUpdated) && this.keywordUpdated) {
+                this.goFirst();
+            }
+
+            return this;
         }
     });
 });

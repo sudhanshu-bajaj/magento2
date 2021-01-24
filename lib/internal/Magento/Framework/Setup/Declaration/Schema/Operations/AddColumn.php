@@ -25,7 +25,7 @@ use Magento\Framework\Setup\Declaration\Schema\OperationInterface;
 class AddColumn implements OperationInterface
 {
     /**
-     * Operation name.
+     * The name of the operation.
      */
     const OPERATION_NAME = 'add_column';
 
@@ -164,7 +164,7 @@ class AddColumn implements OperationInterface
         }
         $statements = [$statement];
         /**
-         * If column has triggers, only than we need to create temporary index on it.
+         * If column has triggers, only then we need to create temporary index on it.
          * As triggers means, that we will not enable primary key until all data will be transferred,
          * so column can left without key (as primary key is disabled) and this cause an error.
          */
@@ -196,7 +196,7 @@ class AddColumn implements OperationInterface
          */
         $element = $elementHistory->getNew();
         $definition = $this->definitionAggregator->toDefinition($element);
-        
+
         $statement = $this->dbSchemaWriter->addElement(
             $element->getName(),
             $element->getTable()->getResource(),
@@ -207,7 +207,7 @@ class AddColumn implements OperationInterface
         $statements = $this->setupTriggersIfExists($statement, $elementHistory);
 
         if ($this->columnIsAutoIncrement($element)) {
-            /** We need to reset auto_increment as new field should goes from 1 */
+            /** We need to reset auto_increment to the current maximum value + one */
             $statements[] = $this->dbSchemaWriter->resetAutoIncrement(
                 $element->getTable()->getName(),
                 $element->getTable()->getResource()

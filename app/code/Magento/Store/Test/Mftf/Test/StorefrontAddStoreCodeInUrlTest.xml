@@ -11,14 +11,19 @@
     <test name="StorefrontAddStoreCodeInUrlTest">
         <annotations>
             <features value="Backend"/>
+            <stories value="Admin Panel URL with Store Code"/>
             <title value="Store code should be added to storefront URL if the corresponding configuration is enabled"/>
             <description value="Store code should be added to storefront URL if the corresponding configuration is enabled"/>
-            <testCaseId value="MC-15944" />
+            <testCaseId value="MC-15944"/>
+            <severity value="CRITICAL"/>
             <group value="store"/>
             <group value="mtf_migrated"/>
         </annotations>
         <before>
             <magentoCLI command="config:set {{StorefrontEnableAddStoreCodeToUrls.path}} {{StorefrontEnableAddStoreCodeToUrls.value}}" stepKey="addStoreCodeToUrlEnable"/>
+            <actionGroup ref="CliCacheFlushActionGroup" stepKey="flushPageCache">
+                <argument name="tags" value="full_page"/>
+            </actionGroup>
         </before>
         <after>
             <magentoCLI command="config:set {{StorefrontDisableAddStoreCodeToUrls.path}} {{StorefrontDisableAddStoreCodeToUrls.value}}" stepKey="addStoreCodeToUrlDisable"/>

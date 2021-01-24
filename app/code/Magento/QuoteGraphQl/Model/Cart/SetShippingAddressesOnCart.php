@@ -7,10 +7,12 @@ declare(strict_types=1);
 
 namespace Magento\QuoteGraphQl\Model\Cart;
 
-use Magento\CustomerGraphQl\Model\Customer\GetCustomer;
+use Magento\Framework\App\ObjectManager;
 use Magento\Framework\GraphQl\Exception\GraphQlInputException;
-use Magento\Framework\GraphQl\Query\Resolver\ContextInterface;
+use Magento\GraphQl\Model\Query\ContextInterface;
 use Magento\Quote\Api\Data\CartInterface;
+use Magento\Quote\Model\QuoteIdToMaskedQuoteIdInterface;
+use Magento\Quote\Model\QuoteRepository;
 
 /**
  * Set single shipping address for a specified shopping cart
@@ -18,14 +20,14 @@ use Magento\Quote\Api\Data\CartInterface;
 class SetShippingAddressesOnCart implements SetShippingAddressesOnCartInterface
 {
     /**
-     * @var QuoteAddressFactory
+     * @var QuoteIdToMaskedQuoteIdInterface
      */
-    private $quoteAddressFactory;
+    private $quoteIdToMaskedQuoteId;
 
     /**
-     * @var GetCustomer
+     * @var GetCartForUser
      */
-    private $getCustomer;
+    private $getCartForUser;
 
     /**
      * @var AssignShippingAddressToCart
@@ -33,18 +35,35 @@ class SetShippingAddressesOnCart implements SetShippingAddressesOnCartInterface
     private $assignShippingAddressToCart;
 
     /**
-     * @param QuoteAddressFactory $quoteAddressFactory
-     * @param GetCustomer $getCustomer
+     * @var GetShippingAddress
+     */
+    private $getShippingAddress;
+
+    /**
+     * @var QuoteRepository
+     */
+    private $quoteRepository;
+
+    /**
+     * @param QuoteIdToMaskedQuoteIdInterface $quoteIdToMaskedQuoteId
+     * @param GetCartForUser $getCartForUser
      * @param AssignShippingAddressToCart $assignShippingAddressToCart
+     * @param GetShippingAddress $getShippingAddress
+     * @param QuoteRepository|null $quoteRepository
      */
     public function __construct(
-        QuoteAddressFactory $quoteAddressFactory,
-        GetCustomer $getCustomer,
-        AssignShippingAddressToCart $assignShippingAddressToCart
+        QuoteIdToMaskedQuoteIdInterface $quoteIdToMaskedQuoteId,
+        GetCartForUser $getCartForUser,
+        AssignShippingAddressToCart $assignShippingAddressToCart,
+        GetShippingAddress $getShippingAddress,
+        QuoteRepository $quoteRepository = null
     ) {
-        $this->quoteAddressFactory = $quoteAddressFactory;
-        $this->getCustomer = $getCustomer;
+        $this->quoteIdToMaskedQuoteId = $quoteIdToMaskedQuoteId;
+        $this->getCartForUser = $getCartForUser;
         $this->assignShippingAddressToCart = $assignShippingAddressToCart;
+        $this->getShippingAddress = $getShippingAddress;
+        $this->quoteRepository = $quoteRepository
+            ?? ObjectManager::getInstance()->get(QuoteRepository::class);
     }
 
     /**
@@ -57,32 +76,32 @@ class SetShippingAddressesOnCart implements SetShippingAddressesOnCartInterface
                 __('You cannot specify multiple shipping addresses.')
             );
         }
-        $shippingAddressInput = current($shippingAddressesInput);
+        $shippingAddressInput = current($shippingAddressesInput) ?? [];
         $customerAddressId = $shippingAddressInput['customer_address_id'] ?? null;
-        $addressInput = $shippingAddressInput['address'] ?? null;
 
-        if (null === $customerAddressId && null === $addressInput) {
-            throw new GraphQlInputException(
-                __('The shipping address must contain either "customer_address_id" or "address".')
-            );
+        if (!$customerAddressId
+            && isset($shippingAddressInput['address'])
+            && !isset($shippingAddressInput['address']['save_in_address_book'])
+        ) {
+            $shippingAddressInput['address']['save_in_address_book'] = true;
         }
 
-        if ($customerAddressId && $addressInput) {
-            throw new GraphQlInputException(
-                __('The shipping address cannot contain "customer_address_id" and "address" at the same time.')
-            );
-        }
+        $shippingAddress = $this->getShippingAddress->execute($context, $shippingAddressInput);
 
-        if (null === $customerAddressId) {
-            $shippingAddress = $this->quoteAddressFactory->createBasedOnInputData($addressInput);
-        } else {
-            $customer = $this->getCustomer->execute($context);
-            $shippingAddress = $this->quoteAddressFactory->createBasedOnCustomerAddress(
-                (int)$customerAddressId,
-                (int)$customer->getId()
-            );
-        }
+        $errors = $shippingAddress->validate();
 
+        if (true !== $errors) {
+            $e = new GraphQlInputException(__('Shipping address errors'));
+            foreach ($errors as $error) {
+                $e->addError(new GraphQlInputException($error));
+            }
+            throw $e;
+        }
         $this->assignShippingAddressToCart->execute($cart, $shippingAddress);
+
+        // reload updated cart & trigger quote re-evaluation after address change
+        $maskedId = $this->quoteIdToMaskedQuoteId->execute((int)$cart->getId());
+        $cart = $this->getCartForUser->execute($maskedId, $context->getUserId(), $cart->getStoreId());
+        $this->quoteRepository->save($cart);
     }
 }

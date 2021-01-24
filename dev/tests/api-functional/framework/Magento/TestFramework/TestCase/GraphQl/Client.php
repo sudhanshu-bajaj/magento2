@@ -61,8 +61,13 @@ class Client
             'operationName' => !empty($operationName) ? $operationName : null
         ];
         $postData = $this->json->jsonEncode($requestArray);
+        try {
+            $responseBody = $this->curlClient->post($url, $postData, $headers);
+        } catch (\Exception $e) {
+            // if response code > 400 then response is the exception message
+            $responseBody = $e->getMessage();
+        }
 
-        $responseBody = $this->curlClient->post($url, $postData, $headers);
         return $this->processResponse($responseBody);
     }
 
@@ -208,7 +213,7 @@ class Client
 
         $headerLines = preg_split('/((\r?\n)|(\r\n?))/', $headers);
         foreach ($headerLines as $headerLine) {
-            $headerParts = preg_split('/:/', $headerLine);
+            $headerParts = preg_split('/: /', $headerLine, 2);
             if (count($headerParts) == 2) {
                 $headersArray[trim($headerParts[0])] = trim($headerParts[1]);
             } elseif (preg_match('/HTTP\/[\.0-9]+/', $headerLine)) {

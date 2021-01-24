@@ -3,14 +3,18 @@
  * Copyright © Magento, Inc. All rights reserved.
  * See COPYING.txt for license details.
  */
+
 namespace Magento\Framework\Image\Adapter;
+
+use Magento\Framework\Exception\FileSystemException;
+use Magento\Framework\Phrase;
 
 /**
  * Gd2 adapter.
  *
  * @SuppressWarnings(PHPMD.ExcessiveClassComplexity)
  */
-class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
+class Gd2 extends AbstractAdapter
 {
     /**
      * Required extensions
@@ -55,10 +59,18 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
      *
      * @param string $filename
      * @return void
-     * @throws \OverflowException
+     * @throws \OverflowException|FileSystemException
      */
     public function open($filename)
     {
+        if (!file_exists($filename)) {
+            throw new FileSystemException(
+                new Phrase('File "%1" does not exist.', [$this->_fileName])
+            );
+        }
+        if (!$filename || filesize($filename) === 0 || !$this->validateURLScheme($filename)) {
+            throw new \InvalidArgumentException('Wrong file');
+        }
         $this->_fileName = $filename;
         $this->_reset();
         $this->getMimeType();
@@ -71,16 +83,23 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
             $this->_getCallback('create', null, sprintf('Unsupported image format. File: %s', $this->_fileName)),
             $this->_fileName
         );
-        $fileType = $this->getImageType();
-        if (in_array($fileType, [IMAGETYPE_PNG, IMAGETYPE_GIF])) {
-            $this->_keepTransparency = true;
-            if ($this->_imageHandler) {
-                $isAlpha = $this->checkAlpha($this->_fileName);
-                if ($isAlpha) {
-                    $this->_fillBackgroundColor($this->_imageHandler);
-                }
-            }
+    }
+
+    /**
+     * Checks for invalid URL schema if it exists
+     *
+     * @param string $filename
+     * @return bool
+     */
+    private function validateURLScheme(string $filename) : bool
+    {
+        $allowed_schemes = ['ftp', 'ftps', 'http', 'https'];
+        $url = parse_url($filename);
+        if ($url && isset($url['scheme']) && !in_array($url['scheme'], $allowed_schemes)) {
+            return false;
         }
+
+        return true;
     }
 
     /**
@@ -225,7 +244,8 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
      * @param null|int $fileType
      * @param string $unsupportedText
      * @return string
-     * @throws \Exception
+     * @throws \InvalidArgumentException
+     * @throws \BadFunctionCallException
      */
     private function _getCallback($callbackType, $fileType = null, $unsupportedText = 'Unsupported image format.')
     {
@@ -233,10 +253,10 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
             $fileType = $this->_fileType;
         }
         if (empty(self::$_callbacks[$fileType])) {
-            throw new \Exception($unsupportedText);
+            throw new \InvalidArgumentException($unsupportedText);
         }
         if (empty(self::$_callbacks[$fileType][$callbackType])) {
-            throw new \Exception('Callback not found.');
+            throw new \BadFunctionCallException('Callback not found.');
         }
         return self::$_callbacks[$fileType][$callbackType];
     }
@@ -248,7 +268,7 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
      *
      * @param resource &$imageResourceTo
      * @return int
-     * @throws \Exception
+     * @throws \InvalidArgumentException
      * @SuppressWarnings(PHPMD.CyclomaticComplexity)
      */
     private function _fillBackgroundColor(&$imageResourceTo)
@@ -261,17 +281,17 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
                 // fill truecolor png with alpha transparency
                 if ($isAlpha) {
                     if (!imagealphablending($imageResourceTo, false)) {
-                        throw new \Exception('Failed to set alpha blending for PNG image.');
+                        throw new \InvalidArgumentException('Failed to set alpha blending for PNG image.');
                     }
                     $transparentAlphaColor = imagecolorallocatealpha($imageResourceTo, 0, 0, 0, 127);
                     if (false === $transparentAlphaColor) {
-                        throw new \Exception('Failed to allocate alpha transparency for PNG image.');
+                        throw new \InvalidArgumentException('Failed to allocate alpha transparency for PNG image.');
                     }
                     if (!imagefill($imageResourceTo, 0, 0, $transparentAlphaColor)) {
-                        throw new \Exception('Failed to fill PNG image with alpha transparency.');
+                        throw new \InvalidArgumentException('Failed to fill PNG image with alpha transparency.');
                     }
                     if (!imagesavealpha($imageResourceTo, true)) {
-                        throw new \Exception('Failed to save alpha transparency into PNG image.');
+                        throw new \InvalidArgumentException('Failed to save alpha transparency into PNG image.');
                     }
 
                     return $transparentAlphaColor;
@@ -283,14 +303,15 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
                         $transparentColor = imagecolorallocate($imageResourceTo, $r, $g, $b);
                     }
                     if (false === $transparentColor) {
-                        throw new \Exception('Failed to allocate transparent color for image.');
+                        throw new \InvalidArgumentException('Failed to allocate transparent color for image.');
                     }
                     if (!imagefill($imageResourceTo, 0, 0, $transparentColor)) {
-                        throw new \Exception('Failed to fill image with transparency.');
+                        throw new \InvalidArgumentException('Failed to fill image with transparency.');
                     }
                     imagecolortransparent($imageResourceTo, $transparentColor);
                     return $transparentColor;
                 }
+                // phpcs:ignore Magento2.CodeAnalysis.EmptyBlock.DetectedCatch
             } catch (\Exception $e) {
                 // fallback to default background color
             }
@@ -298,7 +319,7 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
         list($r, $g, $b) = $this->_backgroundColor;
         $color = imagecolorallocate($imageResourceTo, $r, $g, $b);
         if (!imagefill($imageResourceTo, 0, 0, $color)) {
-            throw new \Exception("Failed to fill image background with color {$r} {$g} {$b}.");
+            throw new \InvalidArgumentException("Failed to fill image background with color {$r} {$g} {$b}.");
         }
 
         return $color;
@@ -319,10 +340,12 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
      * Checks if image has alpha transparency
      *
      * @param resource $imageResource
-     * @param int $fileType one of the constants IMAGETYPE_*
-     * @param bool &$isAlpha
-     * @param bool &$isTrueColor
+     * @param int $fileType
+     * @param bool $isAlpha
+     * @param bool $isTrueColor
+     *
      * @return boolean
+     *
      * @SuppressWarnings(PHPMD.BooleanGetMethodName)
      */
     private function _getTransparency($imageResource, $fileType, &$isAlpha = false, &$isTrueColor = false)
@@ -421,8 +444,6 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
      * @param int $opacity
      * @param bool $tile
      * @return void
-     * @SuppressWarnings(PHPMD.CyclomaticComplexity)
-     * @SuppressWarnings(PHPMD.ExcessiveMethodLength)
      * @SuppressWarnings(PHPMD.UnusedLocalVariable)
      * @SuppressWarnings(PHPMD.UnusedFormalParameter)
      */
@@ -437,53 +458,42 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
 
         $merged = false;
 
+        $watermark = $this->createWatermarkBasedOnPosition($watermark, $positionX, $positionY, $merged, $tile);
+
+        imagedestroy($watermark);
+        $this->refreshImageDimensions();
+    }
+
+    /**
+     * Create watermark based on it's image position.
+     *
+     * @param resource $watermark
+     * @param int $positionX
+     * @param int $positionY
+     * @param bool $merged
+     * @param bool $tile
+     * @return false|resource
+     * @SuppressWarnings(PHPMD.ExcessiveMethodLength)
+     * @SuppressWarnings(PHPMD.CyclomaticComplexity)
+     */
+    private function createWatermarkBasedOnPosition(
+        $watermark,
+        int $positionX,
+        int $positionY,
+        bool $merged,
+        bool $tile
+    ) {
         if ($this->getWatermarkWidth() &&
             $this->getWatermarkHeight() &&
             $this->getWatermarkPosition() != self::POSITION_STRETCH
         ) {
-            $newWatermark = imagecreatetruecolor($this->getWatermarkWidth(), $this->getWatermarkHeight());
-            imagealphablending($newWatermark, false);
-            $col = imagecolorallocate($newWatermark, 255, 255, 255);
-            imagecolortransparent($newWatermark, $col);
-            imagefilledrectangle($newWatermark, 0, 0, $this->getWatermarkWidth(), $this->getWatermarkHeight(), $col);
-            imagesavealpha($newWatermark, true);
-            imagecopyresampled(
-                $newWatermark,
-                $watermark,
-                0,
-                0,
-                0,
-                0,
-                $this->getWatermarkWidth(),
-                $this->getWatermarkHeight(),
-                imagesx($watermark),
-                imagesy($watermark)
-            );
-            $watermark = $newWatermark;
+            $watermark = $this->createWaterMark($watermark, $this->getWatermarkWidth(), $this->getWatermarkHeight());
         }
 
         if ($this->getWatermarkPosition() == self::POSITION_TILE) {
             $tile = true;
         } elseif ($this->getWatermarkPosition() == self::POSITION_STRETCH) {
-            $newWatermark = imagecreatetruecolor($this->_imageSrcWidth, $this->_imageSrcHeight);
-            imagealphablending($newWatermark, false);
-            $col = imagecolorallocate($newWatermark, 255, 255, 255);
-            imagecolortransparent($newWatermark, $col);
-            imagefilledrectangle($newWatermark, 0, 0, $this->_imageSrcWidth, $this->_imageSrcHeight, $col);
-            imagesavealpha($newWatermark, true);
-            imagecopyresampled(
-                $newWatermark,
-                $watermark,
-                0,
-                0,
-                0,
-                0,
-                $this->_imageSrcWidth,
-                $this->_imageSrcHeight,
-                imagesx($watermark),
-                imagesy($watermark)
-            );
-            $watermark = $newWatermark;
+            $watermark = $this->createWaterMark($watermark, $this->_imageSrcWidth, $this->_imageSrcHeight);
         } elseif ($this->getWatermarkPosition() == self::POSITION_CENTER) {
             $positionX = $this->_imageSrcWidth / 2 - imagesx($watermark) / 2;
             $positionY = $this->_imageSrcHeight / 2 - imagesy($watermark) / 2;
@@ -587,8 +597,39 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
             }
         }
 
-        imagedestroy($watermark);
-        $this->refreshImageDimensions();
+        return $watermark;
+    }
+
+    /**
+     * Create watermark.
+     *
+     * @param resource $watermark
+     * @param string $width
+     * @param string $height
+     * @return false|resource
+     */
+    private function createWaterMark($watermark, string $width, string $height)
+    {
+        $newWatermark = imagecreatetruecolor($width, $height);
+        imagealphablending($newWatermark, false);
+        $col = imagecolorallocate($newWatermark, 255, 255, 255);
+        imagecolortransparent($newWatermark, $col);
+        imagefilledrectangle($newWatermark, 0, 0, $width, $height, $col);
+        imagesavealpha($newWatermark, true);
+        imagecopyresampled(
+            $newWatermark,
+            $watermark,
+            0,
+            0,
+            0,
+            0,
+            $width,
+            $height,
+            imagesx($watermark),
+            imagesy($watermark)
+        );
+
+        return $newWatermark;
     }
 
     /**
@@ -637,13 +678,13 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
      * Checks required dependencies
      *
      * @return void
-     * @throws \Exception If some of dependencies are missing
+     * @throws \RuntimeException If some of dependencies are missing
      */
     public function checkDependencies()
     {
         foreach ($this->_requiredExtensions as $value) {
             if (!extension_loaded($value)) {
-                throw new \Exception("Required PHP extension '{$value}' was not loaded.");
+                throw new \RuntimeException("Required PHP extension '{$value}' was not loaded.");
             }
         }
     }
@@ -755,7 +796,7 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
      * @param string $text
      * @param string $font
      * @return void
-     * @throws \Exception
+     * @throws \InvalidArgumentException
      */
     protected function _createImageFromTtfText($text, $font)
     {
@@ -777,7 +818,7 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
             $text
         );
         if ($result === false) {
-            throw new \Exception('Unable to create TTF text');
+            throw new \InvalidArgumentException('Unable to create TTF text');
         }
     }
 
@@ -814,8 +855,9 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
      * @param int $src_w
      * @param int $src_h
      * @param int $pct
-     *
      * @return bool
+     * @SuppressWarnings(PHPMD.CyclomaticComplexity)
+     * @SuppressWarnings(PHPMD.NPathComplexity)
      */
     private function imagecopymergeWithAlphaFix(
         $dst_im,
@@ -851,12 +893,24 @@ class Gd2 extends \Magento\Framework\Image\Adapter\AbstractAdapter
             return false;
         }
 
+        if (false === imagesavealpha($tmpImg, true)) {
+            return false;
+        }
+
         if (false === imagecopy($tmpImg, $src_im, 0, 0, 0, 0, $sizeX, $sizeY)) {
             return false;
         }
 
-        $transparancy = 127 - (($pct*127)/100);
-        if (false === imagefilter($tmpImg, IMG_FILTER_COLORIZE, 0, 0, 0, $transparancy)) {
+        $transparency = 127 - (($pct*127)/100);
+        if (false === imagefilter($tmpImg, IMG_FILTER_COLORIZE, 0, 0, 0, $transparency)) {
+            return false;
+        }
+
+        if (false === imagealphablending($dst_im, true)) {
+            return false;
+        }
+
+        if (false === imagesavealpha($dst_im, true)) {
             return false;
         }
 
